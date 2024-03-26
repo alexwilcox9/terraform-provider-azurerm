@@ -8,16 +8,15 @@ import (
 	"log"
 	"time"
 
-	"github.com/Azure/go-autorest/autorest/date"
+	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/operationalinsights/2020-08-01/workspaces"
+	"github.com/hashicorp/go-azure-sdk/resource-manager/securityinsights/2022-10-01-preview/dataconnectors"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/tf"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
-	"github.com/hashicorp/terraform-provider-azurerm/internal/services/sentinel/parse"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/validation"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/timeouts"
 	"github.com/hashicorp/terraform-provider-azurerm/utils"
-	securityinsight "github.com/jackofallops/kermit/sdk/securityinsights/2022-10-01-preview/securityinsights"
 )
 
 func resourceSentinelDataConnectorThreatIntelligence() *pluginsdk.Resource {
@@ -26,7 +25,7 @@ func resourceSentinelDataConnectorThreatIntelligence() *pluginsdk.Resource {
 		Read:   resourceSentinelDataConnectorThreatIntelligenceRead,
 		Delete: resourceSentinelDataConnectorThreatIntelligenceDelete,
 
-		Importer: importDataConnectorUntyped(securityinsight.DataConnectorKindThreatIntelligence),
+		Importer: importDataConnectorUntyped(dataconnectors.DataConnectorKindThreatIntelligence),
 
 		Timeouts: &pluginsdk.ResourceTimeout{
 			Create: pluginsdk.DefaultTimeout(30 * time.Minute),
@@ -79,17 +78,17 @@ func resourceSentinelDataConnectorThreatIntelligenceCreateUpdate(d *pluginsdk.Re
 		return err
 	}
 	name := d.Get("name").(string)
-	id := parse.NewDataConnectorID(workspaceId.SubscriptionId, workspaceId.ResourceGroupName, workspaceId.WorkspaceName, name)
+	id := dataconnectors.NewDataConnectorID(workspaceId.SubscriptionId, workspaceId.ResourceGroupName, workspaceId.WorkspaceName, name)
 
 	if d.IsNewResource() {
-		resp, err := client.Get(ctx, id.ResourceGroup, id.WorkspaceName, name)
+		resp, err := client.Get(ctx, id)
 		if err != nil {
-			if !utils.ResponseWasNotFound(resp.Response) {
+			if !response.WasNotFound(resp.HttpResponse) {
 				return fmt.Errorf("checking for existing %s: %+v", id, err)
 			}
 		}
 
-		if !utils.ResponseWasNotFound(resp.Response) {
+		if !response.WasNotFound(resp.HttpResponse) {
 			return tf.ImportAsExistsError("azurerm_sentinel_data_connector_threat_intelligence", id.ID())
 		}
 	}
@@ -99,25 +98,22 @@ func resourceSentinelDataConnectorThreatIntelligenceCreateUpdate(d *pluginsdk.Re
 		tenantId = meta.(*clients.Client).Account.TenantId
 	}
 
-	lookbackDate, _ := time.Parse(time.RFC3339, d.Get("lookback_date").(string))
+	lookbackDate := d.Get("lookback_date").(string)
 
-	param := securityinsight.TIDataConnector{
+	param := dataconnectors.TIDataConnector{
 		Name: &name,
-		TIDataConnectorProperties: &securityinsight.TIDataConnectorProperties{
-			TenantID: &tenantId,
-			TipLookbackPeriod: &date.Time{
-				Time: lookbackDate,
-			},
-			DataTypes: &securityinsight.TIDataConnectorDataTypes{
-				Indicators: &securityinsight.TIDataConnectorDataTypesIndicators{
-					State: securityinsight.DataTypeStateEnabled,
+		Properties: &dataconnectors.TIDataConnectorProperties{
+			TenantId:          tenantId,
+			TipLookbackPeriod: utils.String(lookbackDate),
+			DataTypes: dataconnectors.TIDataConnectorDataTypes{
+				Indicators: dataconnectors.DataConnectorDataTypeCommon{
+					State: dataconnectors.DataTypeStateEnabled,
 				},
 			},
 		},
-		Kind: securityinsight.KindBasicDataConnectorKindThreatIntelligence,
 	}
 
-	if _, err = client.CreateOrUpdate(ctx, id.ResourceGroup, id.WorkspaceName, id.Name, param); err != nil {
+	if _, err = client.CreateOrUpdate(ctx, id, param); err != nil {
 		return fmt.Errorf("creating %s: %+v", id, err)
 	}
 
@@ -131,15 +127,15 @@ func resourceSentinelDataConnectorThreatIntelligenceRead(d *pluginsdk.ResourceDa
 	ctx, cancel := timeouts.ForRead(meta.(*clients.Client).StopContext, d)
 	defer cancel()
 
-	id, err := parse.DataConnectorID(d.Id())
+	id, err := dataconnectors.ParseDataConnectorID(d.Id())
 	if err != nil {
 		return err
 	}
-	workspaceId := workspaces.NewWorkspaceID(id.SubscriptionId, id.ResourceGroup, id.WorkspaceName)
+	workspaceId := workspaces.NewWorkspaceID(id.SubscriptionId, id.ResourceGroupName, id.WorkspaceName)
 
-	resp, err := client.Get(ctx, id.ResourceGroup, id.WorkspaceName, id.Name)
+	resp, err := client.Get(ctx, *id)
 	if err != nil {
-		if utils.ResponseWasNotFound(resp.Response) {
+		if response.WasNotFound(resp.HttpResponse) {
 			log.Printf("[DEBUG] %s was not found - removing from state!", id)
 			d.SetId("")
 			return nil
@@ -148,15 +144,17 @@ func resourceSentinelDataConnectorThreatIntelligenceRead(d *pluginsdk.ResourceDa
 		return fmt.Errorf("retrieving %s: %+v", id, err)
 	}
 
-	dc, ok := resp.Value.(securityinsight.TIDataConnector)
+	model := *resp.Model
+
+	modelTI, ok := model.(dataconnectors.TIDataConnector)
 	if !ok {
 		return fmt.Errorf("%s was not a Threat Intelligence Data Connector", id)
 	}
 
-	d.Set("name", id.Name)
+	d.Set("name", modelTI.Name)
 	d.Set("log_analytics_workspace_id", workspaceId.ID())
-	d.Set("tenant_id", dc.TenantID)
-	d.Set("lookback_date", dc.TipLookbackPeriod.Format(time.RFC3339))
+	d.Set("tenant_id", modelTI.Properties.TenantId)
+	d.Set("lookback_date", modelTI.Properties.TipLookbackPeriod)
 
 	return nil
 }
@@ -166,12 +164,12 @@ func resourceSentinelDataConnectorThreatIntelligenceDelete(d *pluginsdk.Resource
 	ctx, cancel := timeouts.ForDelete(meta.(*clients.Client).StopContext, d)
 	defer cancel()
 
-	id, err := parse.DataConnectorID(d.Id())
+	id, err := dataconnectors.ParseDataConnectorID(d.Id())
 	if err != nil {
 		return err
 	}
 
-	if _, err = client.Delete(ctx, id.ResourceGroup, id.WorkspaceName, id.Name); err != nil {
+	if _, err = client.Delete(ctx, *id); err != nil {
 		return fmt.Errorf("deleting %s: %+v", id, err)
 	}
 

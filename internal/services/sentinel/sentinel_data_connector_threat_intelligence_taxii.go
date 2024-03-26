@@ -8,15 +8,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Azure/go-autorest/autorest/date"
+	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/operationalinsights/2022-10-01/workspaces"
+	"github.com/hashicorp/go-azure-sdk/resource-manager/securityinsights/2022-10-01-preview/dataconnectors"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/sdk"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/sentinel/parse"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/sentinel/validate"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/validation"
 	"github.com/hashicorp/terraform-provider-azurerm/utils"
-	securityinsight "github.com/jackofallops/kermit/sdk/securityinsights/2022-10-01-preview/securityinsights"
 )
 
 type DataConnectorThreatIntelligenceTAXIIResource struct{}
@@ -80,11 +80,11 @@ func (r DataConnectorThreatIntelligenceTAXIIResource) Arguments() map[string]*pl
 		"polling_frequency": {
 			Type:     pluginsdk.TypeString,
 			Optional: true,
-			Default:  string(securityinsight.PollingFrequencyOnceAnHour),
+			Default:  string(dataconnectors.PollingFrequencyOnceAnHour),
 			ValidateFunc: validation.StringInSlice([]string{
-				string(securityinsight.PollingFrequencyOnceAMinute),
-				string(securityinsight.PollingFrequencyOnceAnHour),
-				string(securityinsight.PollingFrequencyOnceADay),
+				string(dataconnectors.PollingFrequencyOnceAMinute),
+				string(dataconnectors.PollingFrequencyOnceAnHour),
+				string(dataconnectors.PollingFrequencyOnceADay),
 			},
 				false),
 		},
@@ -121,7 +121,7 @@ func (r DataConnectorThreatIntelligenceTAXIIResource) IDValidationFunc() plugins
 }
 
 func (r DataConnectorThreatIntelligenceTAXIIResource) CustomImporter() sdk.ResourceRunFunc {
-	return importDataConnectorTyped(securityinsight.DataConnectorKindThreatIntelligenceTaxii)
+	return importDataConnectorTyped(dataconnectors.DataConnectorKindThreatIntelligenceTaxii)
 }
 
 func (r DataConnectorThreatIntelligenceTAXIIResource) Create() sdk.ResourceFunc {
@@ -156,14 +156,14 @@ func (r DataConnectorThreatIntelligenceTAXIIResource) Create() sdk.ResourceFunc 
 			}
 			wspId := *wsp.Model.Properties.CustomerId
 
-			id := parse.NewDataConnectorID(workspaceId.SubscriptionId, workspaceId.ResourceGroupName, workspaceId.WorkspaceName, plan.Name)
-			existing, err := client.Get(ctx, id.ResourceGroup, id.WorkspaceName, id.Name)
+			id := dataconnectors.NewDataConnectorID(workspaceId.SubscriptionId, workspaceId.ResourceGroupName, workspaceId.WorkspaceName, plan.Name)
+			existing, err := client.Get(ctx, id)
 			if err != nil {
-				if !utils.ResponseWasNotFound(existing.Response) {
+				if !response.WasNotFound(existing.HttpResponse) {
 					return fmt.Errorf("checking for presence of existing %s: %+v", id, err)
 				}
 			}
-			if !utils.ResponseWasNotFound(existing.Response) {
+			if !response.WasNotFound(existing.HttpResponse) {
 				return metadata.ResourceRequiresImport(r.ResourceType(), id)
 			}
 
@@ -172,39 +172,34 @@ func (r DataConnectorThreatIntelligenceTAXIIResource) Create() sdk.ResourceFunc 
 				tenantId = metadata.Client.Account.TenantId
 			}
 
-			// Format is guaranteed by schema validation
-			lookbackDate, _ := time.Parse(time.RFC3339, plan.LookbackDate)
-
-			params := securityinsight.TiTaxiiDataConnector{
+			params := dataconnectors.TiTaxiiDataConnector{
 				Name: &plan.Name,
-				TiTaxiiDataConnectorProperties: &securityinsight.TiTaxiiDataConnectorProperties{
-					WorkspaceID:      &wspId,
-					FriendlyName:     &plan.DisplayName,
-					TaxiiServer:      &plan.APIRootURL,
-					CollectionID:     &plan.CollectionID,
-					PollingFrequency: securityinsight.PollingFrequency(plan.PollingFrequency),
-					TaxiiLookbackPeriod: &date.Time{
-						Time: lookbackDate,
-					},
-					DataTypes: &securityinsight.TiTaxiiDataConnectorDataTypes{
-						TaxiiClient: &securityinsight.TiTaxiiDataConnectorDataTypesTaxiiClient{
-							State: securityinsight.DataTypeStateEnabled,
+				Properties: &dataconnectors.TiTaxiiDataConnectorProperties{
+					WorkspaceId:         &wspId,
+					FriendlyName:        &plan.DisplayName,
+					TaxiiServer:         &plan.APIRootURL,
+					CollectionId:        &plan.CollectionID,
+					PollingFrequency:    dataconnectors.PollingFrequency(plan.PollingFrequency),
+					TaxiiLookbackPeriod: utils.String(plan.LookbackDate),
+					DataTypes: dataconnectors.TiTaxiiDataConnectorDataTypes{
+						TaxiiClient: dataconnectors.DataConnectorDataTypeCommon{
+							State: dataconnectors.DataTypeStateEnabled,
 						},
 					},
-					TenantID: &tenantId,
+					TenantId: tenantId,
 				},
-				Kind: securityinsight.KindBasicDataConnectorKindThreatIntelligenceTaxii,
+				Type: utils.String(string(dataconnectors.DataConnectorKindThreatIntelligenceTaxii)),
 			}
 
 			if plan.UserName != "" {
-				params.TiTaxiiDataConnectorProperties.UserName = &plan.UserName
+				params.Properties.UserName = &plan.UserName
 			}
 
 			if plan.Password != "" {
-				params.TiTaxiiDataConnectorProperties.Password = &plan.Password
+				params.Properties.Password = &plan.Password
 			}
 
-			if _, err = client.CreateOrUpdate(ctx, id.ResourceGroup, id.WorkspaceName, id.Name, params); err != nil {
+			if _, err = client.CreateOrUpdate(ctx, id, params); err != nil {
 				return fmt.Errorf("creating %s: %+v", id, err)
 			}
 
@@ -220,50 +215,57 @@ func (r DataConnectorThreatIntelligenceTAXIIResource) Read() sdk.ResourceFunc {
 
 		Func: func(ctx context.Context, metadata sdk.ResourceMetaData) error {
 			client := metadata.Client.Sentinel.DataConnectorsClient
-
 			var state DataConnectorThreatIntelligenceTAXIIModel
 			if err := metadata.Decode(&state); err != nil {
 				return err
 			}
 
-			id, err := parse.DataConnectorID(metadata.ResourceData.Id())
+			id, err := dataconnectors.ParseDataConnectorID(metadata.ResourceData.Id())
 			if err != nil {
 				return err
 			}
 
-			workspaceId := workspaces.NewWorkspaceID(id.SubscriptionId, id.ResourceGroup, id.WorkspaceName)
+			workspaceId := workspaces.NewWorkspaceID(id.SubscriptionId, id.ResourceGroupName, id.WorkspaceName)
 
-			existing, err := client.Get(ctx, id.ResourceGroup, id.WorkspaceName, id.Name)
+			existing, err := client.Get(ctx, *id)
 			if err != nil {
-				if utils.ResponseWasNotFound(existing.Response) {
+				if response.WasNotFound(existing.HttpResponse) {
 					return metadata.MarkAsGone(id)
 				}
 				return fmt.Errorf("retrieving %s: %+v", id, err)
 			}
 
-			dc, ok := existing.Value.(securityinsight.TiTaxiiDataConnector)
+			modelImport := *existing.Model
+
+			modelTiTaxii, ok := modelImport.(dataconnectors.TiTaxiiDataConnector)
+
+			// dc, ok := existing.Model.(azuresdkhacks.TiTaxiiDataConnector)
 			if !ok {
 				return fmt.Errorf("%s was not an Threat Intelligence TAXII Data Connector", id)
 			}
 
-			model := DataConnectorThreatIntelligenceTAXIIModel{
-				Name:                    id.Name,
-				LogAnalyticsWorkspaceId: workspaceId.ID(),
-				UserName:                state.UserName, // setting the user name from state, as it is not returned from API
-				Password:                state.Password, // setting the password from state, as it is not returned from API
+			model := dataconnectors.TiTaxiiDataConnectorProperties{
+				Name:        id.Name,
+				WorkspaceId: utils.String(workspaceId.ID()),
+				UserName:    &state.UserName, // setting the user name from state, as it is not returned from API
+				Password:    &state.Password, // setting the password from state, as it is not returned from API
 			}
 
-			if props := dc.TiTaxiiDataConnectorProperties; props != nil {
+			if modelTiTaxii.Name != nil {
+				model.FriendlyName = props.FriendlyName
+			}
+
+			if props := modelTiTaxii.Properties; props != nil {
 				if props.FriendlyName != nil {
-					model.DisplayName = *props.FriendlyName
+					model.FriendlyName = props.FriendlyName
 				}
 
 				if props.TaxiiServer != nil {
-					model.APIRootURL = *props.TaxiiServer
+					model.TaxiiServer = props.TaxiiServer
 				}
 
-				if props.CollectionID != nil {
-					model.CollectionID = *props.CollectionID
+				if props.CollectionId != nil {
+					model.CollectionId = props.CollectionId
 				}
 
 				model.PollingFrequency = string(props.PollingFrequency)
