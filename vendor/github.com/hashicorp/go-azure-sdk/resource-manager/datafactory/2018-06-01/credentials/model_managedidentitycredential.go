@@ -11,7 +11,6 @@ import (
 var _ Credential = ManagedIdentityCredential{}
 
 type ManagedIdentityCredential struct {
-	TypeProperties *ManagedIdentityTypeProperties `json:"typeProperties,omitempty"`
 
 	// Fields inherited from Credential
 	Annotations *[]interface{} `json:"annotations,omitempty"`

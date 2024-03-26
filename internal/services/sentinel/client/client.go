@@ -9,6 +9,7 @@ import (
 	alertruletemplates "github.com/Azure/azure-sdk-for-go/services/preview/securityinsight/mgmt/2021-09-01-preview/securityinsight" // nolint: staticcheck
 	"github.com/hashicorp/go-azure-sdk/resource-manager/securityinsights/2022-10-01-preview/alertrules"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/securityinsights/2022-10-01-preview/automationrules"
+	"github.com/hashicorp/go-azure-sdk/resource-manager/securityinsights/2022-10-01-preview/dataconnectors"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/securityinsights/2022-10-01-preview/metadata"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/securityinsights/2022-11-01/sentinelonboardingstates"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/securityinsights/2022-11-01/watchlistitems"
@@ -21,7 +22,7 @@ type Client struct {
 	AlertRulesClient         *alertrules.AlertRulesClient
 	AlertRuleTemplatesClient *alertruletemplates.AlertRuleTemplatesClient
 	AutomationRulesClient    *automationrules.AutomationRulesClient
-	DataConnectorsClient     *securityinsight.DataConnectorsClient
+	DataConnectorsClient     *dataconnectors.DataConnectorsClient
 	WatchlistsClient         *watchlists.WatchlistsClient
 	WatchlistItemsClient     *watchlistitems.WatchlistItemsClient
 	OnboardingStatesClient   *sentinelonboardingstates.SentinelOnboardingStatesClient
@@ -46,8 +47,8 @@ func NewClient(o *common.ClientOptions) (*Client, error) {
 	}
 	o.Configure(automationRulesClient.Client, o.Authorizers.ResourceManager)
 
-	dataConnectorsClient := securityinsight.NewDataConnectorsClientWithBaseURI(o.ResourceManagerEndpoint, o.SubscriptionId)
-	o.ConfigureClient(&dataConnectorsClient.Client, o.ResourceManagerAuthorizer)
+	dataConnectorsClient, _ := dataconnectors.NewDataConnectorsClientWithBaseURI(o.Environment.ResourceManager)
+	o.Configure(dataConnectorsClient.Client, o.Authorizers.ResourceManager)
 
 	watchListsClient, err := watchlists.NewWatchlistsClientWithBaseURI(o.Environment.ResourceManager)
 	if err != nil {
@@ -83,7 +84,7 @@ func NewClient(o *common.ClientOptions) (*Client, error) {
 		AlertRulesClient:         alertRulesClient,
 		AlertRuleTemplatesClient: &alertRuleTemplatesClient,
 		AutomationRulesClient:    automationRulesClient,
-		DataConnectorsClient:     &dataConnectorsClient,
+		DataConnectorsClient:     dataConnectorsClient,
 		WatchlistsClient:         watchListsClient,
 		WatchlistItemsClient:     watchListItemsClient,
 		OnboardingStatesClient:   onboardingStatesClient,
