@@ -41,6 +41,7 @@ func (r Registration) SupportedDataSources() map[string]*pluginsdk.Resource {
 		"azurerm_dns_ptr_record":   dataSourceDnsPtrRecord(),
 		"azurerm_dns_soa_record":   dataSourceDnsSoaRecord(),
 		"azurerm_dns_srv_record":   dataSourceDnsSrvRecord(),
+		"azurerm_dns_tlsa_record":  dataSourceDnsTLSARecord(),
 		"azurerm_dns_txt_record":   dataSourceDnsTxtRecord(),
 		"azurerm_dns_zone":         dataSourceDnsZone(),
 	}
@@ -58,6 +59,7 @@ func (r Registration) SupportedResources() map[string]*pluginsdk.Resource {
 		"azurerm_dns_ns_record":    resourceDnsNsRecord(),
 		"azurerm_dns_ptr_record":   resourceDnsPtrRecord(),
 		"azurerm_dns_srv_record":   resourceDnsSrvRecord(),
+		"azurerm_dns_tlsa_record":  resourceDnsTLSARecord(),
 		"azurerm_dns_txt_record":   resourceDnsTxtRecord(),
 		"azurerm_dns_zone":         resourceDnsZone(),
 	}
