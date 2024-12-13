@@ -10,9 +10,9 @@ import (
 
 	"github.com/hashicorp/go-azure-helpers/lang/pointer"
 	"github.com/hashicorp/go-azure-helpers/lang/response"
-	"github.com/hashicorp/go-azure-helpers/resourcemanager/commonschema"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/dns/2023-07-01-preview/recordsets"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/sdk"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/services/dns/helpers"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/dns/validate"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
 )
@@ -34,74 +34,45 @@ func (DnsDSRecordDataResource) ResourceType() string {
 }
 
 type DnsDSRecordDataSourceModel struct {
-	Name              string                      `tfschema:"name"`
-	ResourceGroupName string                      `tfschema:"resource_group_name"`
-	ZoneName          string                      `tfschema:"zone_name"`
-	Ttl               int64                       `tfschema:"ttl"`
-	Record            []DnsDSRecordResourceRecord `tfschema:"record"`
-	Tags              map[string]string           `tfschema:"tags"`
-	Fqdn              string                      `tfschema:"fqdn"`
+	helpers.DnsRecordModel
+	Record []DnsDSRecordResourceRecord `tfschema:"record"`
 }
 
 func (DnsDSRecordDataResource) Arguments() map[string]*pluginsdk.Schema {
-	return map[string]*pluginsdk.Schema{
-		"name": {
-			Type:     pluginsdk.TypeString,
-			Required: true,
-		},
-
-		"resource_group_name": commonschema.ResourceGroupNameForDataSource(),
-
-		"zone_name": {
-			Type:     pluginsdk.TypeString,
-			Required: true,
-		},
-	}
+	return helpers.DnsRecordDataSourceArgumentsSchema()
 }
 
 func (DnsDSRecordDataResource) Attributes() map[string]*pluginsdk.Schema {
-	return map[string]*pluginsdk.Schema{
-		"record": {
-			Type:     pluginsdk.TypeSet,
-			Computed: true,
-			Elem: &pluginsdk.Resource{
-				Schema: map[string]*pluginsdk.Schema{
-					"algorithm": {
-						Type:     pluginsdk.TypeInt,
-						Computed: true,
-					},
+	schema := helpers.DnsRecordDataSourceAttributesSchema()
+	schema["record"] = pointer.To(pluginsdk.Schema{
+		Type:     pluginsdk.TypeSet,
+		Computed: true,
+		Elem: &pluginsdk.Resource{
+			Schema: map[string]*pluginsdk.Schema{
+				"algorithm": {
+					Type:     pluginsdk.TypeInt,
+					Computed: true,
+				},
 
-					"key_tag": {
-						Type:     pluginsdk.TypeInt,
-						Computed: true,
-					},
+				"key_tag": {
+					Type:     pluginsdk.TypeInt,
+					Computed: true,
+				},
 
-					"digest_type": {
-						Type:     pluginsdk.TypeInt,
-						Computed: true,
-					},
+				"digest_type": {
+					Type:     pluginsdk.TypeInt,
+					Computed: true,
+				},
 
-					"digest_value": {
-						Type:     pluginsdk.TypeString,
-						Computed: true,
-					},
+				"digest_value": {
+					Type:     pluginsdk.TypeString,
+					Computed: true,
 				},
 			},
-			Set: resourceDnsDSRecordHash,
 		},
-
-		"ttl": {
-			Type:     pluginsdk.TypeInt,
-			Computed: true,
-		},
-
-		"fqdn": {
-			Type:     pluginsdk.TypeString,
-			Computed: true,
-		},
-
-		"tags": commonschema.TagsDataSource(),
-	}
+		Set: resourceDnsDSRecordHash,
+	})
+	return schema
 }
 
 func (DnsDSRecordDataResource) Read() sdk.ResourceFunc {
