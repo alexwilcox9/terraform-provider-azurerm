@@ -15,6 +15,7 @@ type Registration struct{}
 var (
 	_ sdk.FrameworkServiceRegistration               = Registration{}
 	_ sdk.UntypedServiceRegistrationWithAGitHubLabel = Registration{}
+	_ sdk.TypedServiceRegistrationWithAGitHubLabel   = Registration{}
 )
 
 func (r Registration) AssociatedGitHubLabel() string {
@@ -46,7 +47,18 @@ func (r Registration) SupportedResources() map[string]*pluginsdk.Resource {
 	return map[string]*pluginsdk.Resource{
 		"azurerm_notification_hub_authorization_rule": resourceNotificationHubAuthorizationRule(),
 		"azurerm_notification_hub_namespace":          resourceNotificationHubNamespace(),
-		"azurerm_notification_hub":                    resourceNotificationHub(),
+	}
+}
+
+// DataSources returns the typed DataSources supported by this service
+func (r Registration) DataSources() []sdk.DataSource {
+	return []sdk.DataSource{}
+}
+
+// Resources returns the typed Resources supported by this service
+func (r Registration) Resources() []sdk.Resource {
+	return []sdk.Resource{
+		NotificationHubResource{},
 	}
 }
 

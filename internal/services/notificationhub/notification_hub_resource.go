@@ -14,52 +14,187 @@ import (
 	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/commonschema"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/location"
-	"github.com/hashicorp/go-azure-helpers/resourcemanager/tags"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/notificationhubs/2023-09-01/hubs"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/tf"
-	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/sdk"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/notificationhub/migration"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/validation"
-	"github.com/hashicorp/terraform-provider-azurerm/internal/timeouts"
 )
 
-var notificationHubResourceName = "azurerm_notification_hub"
+type NotificationHubResource struct{}
 
-const (
-	apnsProductionName     = "Production"
-	apnsProductionEndpoint = "https://api.push.apple.com:443/3/device"
-	apnsSandboxName        = "Sandbox"
-	apnsSandboxEndpoint    = "https://api.development.push.apple.com:443/3/device"
+type NotificationHubModel struct {
+	Name              string                                  `tfschema:"name"`
+	NamespaceName     string                                  `tfschema:"namespace_name"`
+	ResourceGroupName string                                  `tfschema:"resource_group_name"`
+	Location          string                                  `tfschema:"location"`
+	ApnsCredential    []NotificationHubApnsCredentialModel    `tfschema:"apns_credential"`
+	BrowserCredential []NotificationHubBrowserCredentialModel `tfschema:"browser_credential"`
+	GcmCredential     []NotificationHubGcmCredentialModel     `tfschema:"gcm_credential"`
+	Tags              map[string]string                       `tfschema:"tags"`
+}
+
+type NotificationHubApnsCredentialModel struct {
+	ApplicationMode string `tfschema:"application_mode"`
+	BundleId        string `tfschema:"bundle_id"`
+	KeyId           string `tfschema:"key_id"`
+	TeamId          string `tfschema:"team_id"`
+	Token           string `tfschema:"token"`
+}
+
+type NotificationHubBrowserCredentialModel struct {
+	Subject         string `tfschema:"subject"`
+	VapidPrivateKey string `tfschema:"vapid_private_key"`
+	VapidPublicKey  string `tfschema:"vapid_public_key"`
+}
+
+type NotificationHubGcmCredentialModel struct {
+	ApiKey string `tfschema:"api_key"`
+}
+
+var (
+	_ sdk.ResourceWithUpdate         = NotificationHubResource{}
+	_ sdk.ResourceWithStateMigration = NotificationHubResource{}
+	_ sdk.ResourceWithCustomizeDiff  = NotificationHubResource{}
 )
 
-func resourceNotificationHub() *pluginsdk.Resource {
-	return &pluginsdk.Resource{
-		Create: resourceNotificationHubCreateUpdate,
-		Read:   resourceNotificationHubRead,
-		Update: resourceNotificationHubCreateUpdate,
-		Delete: resourceNotificationHubDelete,
+func (r NotificationHubResource) ResourceType() string {
+	return "azurerm_notification_hub"
+}
 
-		Importer: pluginsdk.ImporterValidatingResourceId(func(id string) error {
-			_, err := hubs.ParseNotificationHubID(id)
-			return err
-		}),
+func (r NotificationHubResource) ModelObject() interface{} {
+	return &NotificationHubModel{}
+}
 
+func (r NotificationHubResource) StateUpgraders() sdk.StateUpgradeData {
+	return sdk.StateUpgradeData{
 		SchemaVersion: 1,
-		StateUpgraders: pluginsdk.StateUpgrades(map[int]pluginsdk.StateUpgrade{
+		Upgraders: map[int]pluginsdk.StateUpgrade{
 			0: migration.NotificationHubResourceV0ToV1{},
-		}),
+		},
+	}
+}
 
-		Timeouts: &pluginsdk.ResourceTimeout{
-			Create: pluginsdk.DefaultTimeout(30 * time.Minute),
-			Read:   pluginsdk.DefaultTimeout(5 * time.Minute),
-			Update: pluginsdk.DefaultTimeout(30 * time.Minute),
-			Delete: pluginsdk.DefaultTimeout(30 * time.Minute),
+func (r NotificationHubResource) IDValidationFunc() pluginsdk.SchemaValidateFunc {
+	return hubs.ValidateNotificationHubID
+}
+
+func (r NotificationHubResource) Arguments() map[string]*pluginsdk.Schema {
+	return map[string]*pluginsdk.Schema{
+		"name": {
+			Type:     pluginsdk.TypeString,
+			Required: true,
+			ForceNew: true,
 		},
 
-		CustomizeDiff: pluginsdk.CustomizeDiffShim(func(ctx context.Context, diff *pluginsdk.ResourceDiff, v interface{}) error {
+		"namespace_name": {
+			Type:     pluginsdk.TypeString,
+			Required: true,
+			ForceNew: true,
+		},
+
+		"resource_group_name": commonschema.ResourceGroupName(),
+
+		"location": commonschema.Location(),
+
+		"apns_credential": {
+			Type:     pluginsdk.TypeList,
+			Optional: true,
+			MaxItems: 1,
+			Elem: &pluginsdk.Resource{
+				Schema: map[string]*pluginsdk.Schema{
+					// NOTE: APNS supports two modes, certificate auth (v1) and token auth (v2)
+					// certificate authentication/v1 is marked for deprecation; as such we're not
+					// supporting it at this time.
+					"application_mode": {
+						Type:     pluginsdk.TypeString,
+						Required: true,
+						ValidateFunc: validation.StringInSlice([]string{
+							apnsProductionName,
+							apnsSandboxName,
+						}, false),
+					},
+					"bundle_id": {
+						Type:     pluginsdk.TypeString,
+						Required: true,
+					},
+					"key_id": {
+						Type:     pluginsdk.TypeString,
+						Required: true,
+					},
+					// Team ID (within Apple & the Portal) == "AppID" (within the API)
+					"team_id": {
+						Type:     pluginsdk.TypeString,
+						Required: true,
+					},
+					"token": {
+						Type:      pluginsdk.TypeString,
+						Required:  true,
+						Sensitive: true,
+					},
+				},
+			},
+		},
+
+		"browser_credential": {
+			Type:     pluginsdk.TypeList,
+			Optional: true,
+			ForceNew: true,
+			MaxItems: 1,
+			Elem: &pluginsdk.Resource{
+				Schema: map[string]*pluginsdk.Schema{
+					"subject": {
+						Type:         pluginsdk.TypeString,
+						Required:     true,
+						ValidateFunc: validation.StringIsNotEmpty,
+					},
+					"vapid_private_key": {
+						Type:         pluginsdk.TypeString,
+						Required:     true,
+						ValidateFunc: validation.StringIsNotEmpty,
+						Sensitive:    true,
+					},
+					"vapid_public_key": {
+						Type:         pluginsdk.TypeString,
+						Required:     true,
+						ValidateFunc: validation.StringIsNotEmpty,
+					},
+				},
+			},
+		},
+
+		"gcm_credential": {
+			Type:     pluginsdk.TypeList,
+			Optional: true,
+			MaxItems: 1,
+			Elem: &pluginsdk.Resource{
+				Schema: map[string]*pluginsdk.Schema{
+					"api_key": {
+						Type:      pluginsdk.TypeString,
+						Required:  true,
+						Sensitive: true,
+					},
+				},
+			},
+		},
+
+		"tags": commonschema.Tags(),
+	}
+}
+
+func (r NotificationHubResource) Attributes() map[string]*pluginsdk.Schema {
+	return map[string]*pluginsdk.Schema{}
+}
+
+func (r NotificationHubResource) CustomizeDiff() sdk.ResourceFunc {
+	return sdk.ResourceFunc{
+		Timeout: 5 * time.Minute,
+		Func: func(ctx context.Context, metadata sdk.ResourceMetaData) error {
 			// NOTE: the ForceNew is to workaround a bug in the Azure SDK where nil-values aren't sent to the API.
 			// Bug: https://github.com/Azure/azure-sdk-for-go/issues/2246
+
+			diff := metadata.ResourceDiff
 
 			oAPNS, nAPNS := diff.GetChange("apns_credential.#")
 			oAPNSi := oAPNS.(int)
@@ -76,121 +211,30 @@ func resourceNotificationHub() *pluginsdk.Resource {
 			}
 
 			return nil
-		}),
-
-		Schema: map[string]*pluginsdk.Schema{
-			"name": {
-				Type:     pluginsdk.TypeString,
-				Required: true,
-				ForceNew: true,
-			},
-
-			"namespace_name": {
-				Type:     pluginsdk.TypeString,
-				Required: true,
-				ForceNew: true,
-			},
-
-			"resource_group_name": commonschema.ResourceGroupName(),
-
-			"location": commonschema.Location(),
-
-			"apns_credential": {
-				Type:     pluginsdk.TypeList,
-				Optional: true,
-				MaxItems: 1,
-				Elem: &pluginsdk.Resource{
-					Schema: map[string]*pluginsdk.Schema{
-						// NOTE: APNS supports two modes, certificate auth (v1) and token auth (v2)
-						// certificate authentication/v1 is marked for deprecation; as such we're not
-						// supporting it at this time.
-						"application_mode": {
-							Type:     pluginsdk.TypeString,
-							Required: true,
-							ValidateFunc: validation.StringInSlice([]string{
-								apnsProductionName,
-								apnsSandboxName,
-							}, false),
-						},
-						"bundle_id": {
-							Type:     pluginsdk.TypeString,
-							Required: true,
-						},
-						"key_id": {
-							Type:     pluginsdk.TypeString,
-							Required: true,
-						},
-						// Team ID (within Apple & the Portal) == "AppID" (within the API)
-						"team_id": {
-							Type:     pluginsdk.TypeString,
-							Required: true,
-						},
-						"token": {
-							Type:      pluginsdk.TypeString,
-							Required:  true,
-							Sensitive: true,
-						},
-					},
-				},
-			},
-
-			"browser_credential": {
-				Type:     pluginsdk.TypeList,
-				Optional: true,
-				ForceNew: true,
-				MaxItems: 1,
-				Elem: &pluginsdk.Resource{
-					Schema: map[string]*pluginsdk.Schema{
-						"subject": {
-							Type:         pluginsdk.TypeString,
-							Required:     true,
-							ValidateFunc: validation.StringIsNotEmpty,
-						},
-						"vapid_private_key": {
-							Type:         pluginsdk.TypeString,
-							Required:     true,
-							ValidateFunc: validation.StringIsNotEmpty,
-							Sensitive:    true,
-						},
-						"vapid_public_key": {
-							Type:         pluginsdk.TypeString,
-							Required:     true,
-							ValidateFunc: validation.StringIsNotEmpty,
-						},
-					},
-				},
-			},
-
-			"gcm_credential": {
-				Type:     pluginsdk.TypeList,
-				Optional: true,
-				MaxItems: 1,
-				Elem: &pluginsdk.Resource{
-					Schema: map[string]*pluginsdk.Schema{
-						"api_key": {
-							Type:      pluginsdk.TypeString,
-							Required:  true,
-							Sensitive: true,
-						},
-					},
-				},
-			},
-
-			"tags": commonschema.Tags(),
 		},
 	}
 }
 
-func resourceNotificationHubCreateUpdate(d *pluginsdk.ResourceData, meta interface{}) error {
-	client := meta.(*clients.Client).NotificationHubs.HubsClient
-	subscriptionId := meta.(*clients.Client).Account.SubscriptionId
-	ctx, cancel := timeouts.ForCreateUpdate(meta.(*clients.Client).StopContext, d)
-	defer cancel()
+const (
+	apnsProductionName     = "Production"
+	apnsProductionEndpoint = "https://api.push.apple.com:443/3/device"
+	apnsSandboxName        = "Sandbox"
+	apnsSandboxEndpoint    = "https://api.development.push.apple.com:443/3/device"
+)
 
-	id := hubs.NewNotificationHubID(subscriptionId, d.Get("resource_group_name").(string), d.Get("namespace_name").(string), d.Get("name").(string))
+func resourceNotificationHubCreateUpdate(ctx context.Context, metadata sdk.ResourceMetaData) error {
+	client := metadata.Client.NotificationHubs.HubsClient
+	subscriptionId := metadata.Client.Account.SubscriptionId
 
-	if d.IsNewResource() {
-		if !meta.(*clients.Client).Features.SkipImportCheckOnCreateAndAllowOverwritingExistingResources {
+	var model NotificationHubModel
+	if err := metadata.Decode(&model); err != nil {
+		return fmt.Errorf("decoding: %+v", err)
+	}
+
+	id := hubs.NewNotificationHubID(subscriptionId, model.ResourceGroupName, model.NamespaceName, model.Name)
+
+	if metadata.ResourceData.IsNewResource() {
+		if !metadata.Client.Features.SkipImportCheckOnCreateAndAllowOverwritingExistingResources {
 			existing, err := client.NotificationHubsGet(ctx, id)
 			if err != nil {
 				if !response.WasNotFound(existing.HttpResponse) {
@@ -205,13 +249,13 @@ func resourceNotificationHubCreateUpdate(d *pluginsdk.ResourceData, meta interfa
 	}
 
 	parameters := hubs.NotificationHubResource{
-		Location: location.Normalize(d.Get("location").(string)),
+		Location: location.Normalize(model.Location),
 		Properties: &hubs.NotificationHubProperties{
-			ApnsCredential:    expandNotificationHubsAPNSCredentials(d.Get("apns_credential").([]interface{})),
-			BrowserCredential: expandNotificationHubsBrowserCredentials(d.Get("browser_credential").([]interface{})),
-			GcmCredential:     expandNotificationHubsGCMCredentials(d.Get("gcm_credential").([]interface{})),
+			ApnsCredential:    expandNotificationHubsAPNSCredentials(model.ApnsCredential),
+			BrowserCredential: expandNotificationHubsBrowserCredentials(model.BrowserCredential),
+			GcmCredential:     expandNotificationHubsGCMCredentials(model.GcmCredential),
 		},
-		Tags: tags.Expand(d.Get("tags").(map[string]interface{})),
+		Tags: &model.Tags,
 	}
 
 	if _, err := client.NotificationHubsCreateOrUpdate(ctx, id, parameters); err != nil {
@@ -236,8 +280,23 @@ func resourceNotificationHubCreateUpdate(d *pluginsdk.ResourceData, meta interfa
 		return fmt.Errorf("waiting for %s to become available: %+v", id, err)
 	}
 
-	d.SetId(id.ID())
-	return resourceNotificationHubRead(d, meta)
+	metadata.SetID(id)
+
+	return nil
+}
+
+func (r NotificationHubResource) Create() sdk.ResourceFunc {
+	return sdk.ResourceFunc{
+		Timeout: 30 * time.Minute,
+		Func:    resourceNotificationHubCreateUpdate,
+	}
+}
+
+func (r NotificationHubResource) Update() sdk.ResourceFunc {
+	return sdk.ResourceFunc{
+		Timeout: 30 * time.Minute,
+		Func:    resourceNotificationHubCreateUpdate,
+	}
 }
 
 func notificationHubStateRefreshFunc(ctx context.Context, client *hubs.HubsClient, id hubs.NotificationHubId) pluginsdk.StateRefreshFunc {
@@ -260,93 +319,89 @@ func notificationHubStateRefreshFunc(ctx context.Context, client *hubs.HubsClien
 	}
 }
 
-func resourceNotificationHubRead(d *pluginsdk.ResourceData, meta interface{}) error {
-	client := meta.(*clients.Client).NotificationHubs.HubsClient
-	ctx, cancel := timeouts.ForRead(meta.(*clients.Client).StopContext, d)
-	defer cancel()
+func (r NotificationHubResource) Read() sdk.ResourceFunc {
+	return sdk.ResourceFunc{
+		Timeout: 5 * time.Minute,
+		Func: func(ctx context.Context, metadata sdk.ResourceMetaData) error {
+			client := metadata.Client.NotificationHubs.HubsClient
 
-	id, err := hubs.ParseNotificationHubID(d.Id())
-	if err != nil {
-		return err
+			id, err := hubs.ParseNotificationHubID(metadata.ResourceData.Id())
+			if err != nil {
+				return err
+			}
+
+			resp, err := client.NotificationHubsGet(ctx, *id)
+			if err != nil {
+				if response.WasNotFound(resp.HttpResponse) {
+					log.Printf("[DEBUG] %s was not found - removing from state", *id)
+					return metadata.MarkAsGone(id)
+				}
+
+				return fmt.Errorf("retrieving %s: %+v", *id, err)
+			}
+
+			credentials, err := client.NotificationHubsGetPnsCredentials(ctx, *id)
+			if err != nil {
+				return fmt.Errorf("retrieving credentials for %s: %+v", *id, err)
+			}
+			state := NotificationHubModel{
+				Name:              id.NotificationHubName,
+				NamespaceName:     id.NamespaceName,
+				ResourceGroupName: id.ResourceGroupName,
+			}
+
+			if credentialsModel := credentials.Model; credentialsModel != nil {
+				if props := credentialsModel.Properties; props != nil {
+					state.ApnsCredential = flattenNotificationHubsAPNSCredentials(props.ApnsCredential)
+					state.BrowserCredential = flattenNotificationHubsBrowserCredentials(props.BrowserCredential)
+					state.GcmCredential = flattenNotificationHubsGCMCredentials(props.GcmCredential)
+				}
+			}
+
+			if model := resp.Model; model != nil {
+				state.Location = location.NormalizeNilable(&model.Location)
+				state.Tags = *model.Tags
+			}
+
+			return metadata.Encode(&state)
+		},
 	}
+}
 
-	resp, err := client.NotificationHubsGet(ctx, *id)
-	if err != nil {
-		if response.WasNotFound(resp.HttpResponse) {
-			log.Printf("[DEBUG] %s was not found - removing from state", *id)
-			d.SetId("")
+func (r NotificationHubResource) Delete() sdk.ResourceFunc {
+	return sdk.ResourceFunc{
+		Timeout: 30 * time.Minute,
+		Func: func(ctx context.Context, metadata sdk.ResourceMetaData) error {
+			client := metadata.Client.NotificationHubs.HubsClient
+
+			id, err := hubs.ParseNotificationHubID(metadata.ResourceData.Id())
+			if err != nil {
+				return err
+			}
+
+			resp, err := client.NotificationHubsDelete(ctx, *id)
+			if err != nil {
+				if !response.WasNotFound(resp.HttpResponse) {
+					return fmt.Errorf("deleting %s: %+v", *id, err)
+				}
+			}
+
 			return nil
-		}
-
-		return fmt.Errorf("retrieving %s: %+v", *id, err)
+		},
 	}
-
-	credentials, err := client.NotificationHubsGetPnsCredentials(ctx, *id)
-	if err != nil {
-		return fmt.Errorf("retrieving credentials for %s: %+v", *id, err)
-	}
-
-	d.Set("name", id.NotificationHubName)
-	d.Set("namespace_name", id.NamespaceName)
-	d.Set("resource_group_name", id.ResourceGroupName)
-
-	if credentialsModel := credentials.Model; credentialsModel != nil {
-		if props := credentialsModel.Properties; props != nil {
-			apns := flattenNotificationHubsAPNSCredentials(props.ApnsCredential)
-			if setErr := d.Set("apns_credential", apns); setErr != nil {
-				return fmt.Errorf("setting `apns_credential`: %+v", setErr)
-			}
-			browser := flattenNotificationHubsBrowserCredentials(props.BrowserCredential)
-			if setErr := d.Set("browser_credential", browser); setErr != nil {
-				return fmt.Errorf("setting `browser_credential`: %+v", setErr)
-			}
-			gcm := flattenNotificationHubsGCMCredentials(props.GcmCredential)
-			if setErr := d.Set("gcm_credential", gcm); setErr != nil {
-				return fmt.Errorf("setting `gcm_credential`: %+v", setErr)
-			}
-		}
-	}
-
-	if model := resp.Model; model != nil {
-		d.Set("location", location.NormalizeNilable(&model.Location))
-
-		return d.Set("tags", tags.Flatten(model.Tags))
-	}
-
-	return nil
 }
 
-func resourceNotificationHubDelete(d *pluginsdk.ResourceData, meta interface{}) error {
-	client := meta.(*clients.Client).NotificationHubs.HubsClient
-	ctx, cancel := timeouts.ForDelete(meta.(*clients.Client).StopContext, d)
-	defer cancel()
-
-	id, err := hubs.ParseNotificationHubID(d.Id())
-	if err != nil {
-		return err
-	}
-
-	resp, err := client.NotificationHubsDelete(ctx, *id)
-	if err != nil {
-		if !response.WasNotFound(resp.HttpResponse) {
-			return fmt.Errorf("deleting %s: %+v", *id, err)
-		}
-	}
-
-	return nil
-}
-
-func expandNotificationHubsAPNSCredentials(inputs []interface{}) *hubs.ApnsCredential {
+func expandNotificationHubsAPNSCredentials(inputs []NotificationHubApnsCredentialModel) *hubs.ApnsCredential {
 	if len(inputs) == 0 {
 		return nil
 	}
 
-	input := inputs[0].(map[string]interface{})
-	applicationMode := input["application_mode"].(string)
-	bundleId := input["bundle_id"].(string)
-	keyId := input["key_id"].(string)
-	teamId := input["team_id"].(string)
-	token := input["token"].(string)
+	input := inputs[0]
+	applicationMode := input.ApplicationMode
+	bundleId := input.BundleId
+	keyId := input.KeyId
+	teamId := input.TeamId
+	token := input.Token
 
 	applicationEndpoints := map[string]string{
 		apnsProductionName: apnsProductionEndpoint,
@@ -366,31 +421,31 @@ func expandNotificationHubsAPNSCredentials(inputs []interface{}) *hubs.ApnsCrede
 	return &credentials
 }
 
-func expandNotificationHubsBrowserCredentials(inputs []interface{}) *hubs.BrowserCredential {
+func expandNotificationHubsBrowserCredentials(inputs []NotificationHubBrowserCredentialModel) *hubs.BrowserCredential {
 	if len(inputs) == 0 {
 		return nil
 	}
 
-	input := inputs[0].(map[string]interface{})
+	input := inputs[0]
 	credentials := hubs.BrowserCredential{
 		Properties: hubs.BrowserCredentialProperties{
-			Subject:         input["subject"].(string),
-			VapidPrivateKey: input["vapid_private_key"].(string),
-			VapidPublicKey:  input["vapid_public_key"].(string),
+			Subject:         input.Subject,
+			VapidPrivateKey: input.VapidPrivateKey,
+			VapidPublicKey:  input.VapidPublicKey,
 		},
 	}
 	return &credentials
 }
 
-func flattenNotificationHubsAPNSCredentials(input *hubs.ApnsCredential) []interface{} {
+func flattenNotificationHubsAPNSCredentials(input *hubs.ApnsCredential) []NotificationHubApnsCredentialModel {
 	if input == nil {
-		return make([]interface{}, 0)
+		return make([]NotificationHubApnsCredentialModel, 0)
 	}
 
-	output := make(map[string]interface{})
+	output := NotificationHubApnsCredentialModel{}
 
 	if bundleId := input.Properties.AppName; bundleId != nil {
-		output["bundle_id"] = *bundleId
+		output.BundleId = *bundleId
 	}
 
 	applicationEndpoints := map[string]string{
@@ -398,59 +453,59 @@ func flattenNotificationHubsAPNSCredentials(input *hubs.ApnsCredential) []interf
 		apnsSandboxEndpoint:    apnsSandboxName,
 	}
 	applicationMode := applicationEndpoints[input.Properties.Endpoint]
-	output["application_mode"] = applicationMode
+	output.ApplicationMode = applicationMode
 
 	if keyId := input.Properties.KeyId; keyId != nil {
-		output["key_id"] = *keyId
+		output.KeyId = *keyId
 	}
 
 	if teamId := input.Properties.AppId; teamId != nil {
-		output["team_id"] = *teamId
+		output.TeamId = *teamId
 	}
 
 	if token := input.Properties.Token; token != nil {
-		output["token"] = *token
+		output.Token = *token
 	}
 
-	return []interface{}{output}
+	return []NotificationHubApnsCredentialModel{output}
 }
 
-func flattenNotificationHubsBrowserCredentials(input *hubs.BrowserCredential) []interface{} {
+func flattenNotificationHubsBrowserCredentials(input *hubs.BrowserCredential) []NotificationHubBrowserCredentialModel {
 	if input == nil {
-		return make([]interface{}, 0)
+		return make([]NotificationHubBrowserCredentialModel, 0)
 	}
 
-	output := make(map[string]interface{})
+	output := NotificationHubBrowserCredentialModel{
+		Subject:         input.Properties.Subject,
+		VapidPrivateKey: input.Properties.VapidPrivateKey,
+		VapidPublicKey:  input.Properties.VapidPublicKey,
+	}
 
-	output["subject"] = input.Properties.Subject
-	output["vapid_private_key"] = input.Properties.VapidPrivateKey
-	output["vapid_public_key"] = input.Properties.VapidPublicKey
-
-	return []interface{}{output}
+	return []NotificationHubBrowserCredentialModel{output}
 }
 
-func expandNotificationHubsGCMCredentials(inputs []interface{}) *hubs.GcmCredential {
+func expandNotificationHubsGCMCredentials(inputs []NotificationHubGcmCredentialModel) *hubs.GcmCredential {
 	if len(inputs) == 0 {
 		return nil
 	}
 
-	input := inputs[0].(map[string]interface{})
-	apiKey := input["api_key"].(string)
+	input := inputs[0]
 	credentials := hubs.GcmCredential{
 		Properties: hubs.GcmCredentialProperties{
-			GoogleApiKey: apiKey,
+			GoogleApiKey: input.ApiKey,
 		},
 	}
 	return &credentials
 }
 
-func flattenNotificationHubsGCMCredentials(input *hubs.GcmCredential) []interface{} {
+func flattenNotificationHubsGCMCredentials(input *hubs.GcmCredential) []NotificationHubGcmCredentialModel {
 	if input == nil {
-		return []interface{}{}
+		return []NotificationHubGcmCredentialModel{}
 	}
 
-	output := make(map[string]interface{})
-	output["api_key"] = input.Properties.GoogleApiKey
+	output := NotificationHubGcmCredentialModel{
+		ApiKey: input.Properties.GoogleApiKey,
+	}
 
-	return []interface{}{output}
+	return []NotificationHubGcmCredentialModel{output}
 }

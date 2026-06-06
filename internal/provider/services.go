@@ -207,6 +207,7 @@ func SupportedTypedServices() []sdk.TypedServiceRegistration {
 		networkfunction.Registration{},
 		newrelic.Registration{},
 		nginx.Registration{},
+		notificationhub.Registration{},
 		oracle.Registration{},
 		orbital.Registration{},
 		paloalto.Registration{},

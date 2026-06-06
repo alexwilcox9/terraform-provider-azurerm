@@ -130,9 +130,9 @@ func resourceNotificationHubAuthorizationRuleCreateUpdate(d *pluginsdk.ResourceD
 			}
 		}
 	}
-
-	locks.ByName(id.NotificationHubName, notificationHubResourceName)
-	defer locks.UnlockByName(id.NotificationHubName, notificationHubResourceName)
+	hub := NotificationHubResource{}
+	locks.ByName(id.NotificationHubName, hub.ResourceType())
+	defer locks.UnlockByName(id.NotificationHubName, hub.ResourceType())
 
 	locks.ByName(id.NamespaceName, notificationHubNamespaceResourceName)
 	defer locks.UnlockByName(id.NamespaceName, notificationHubNamespaceResourceName)
@@ -214,8 +214,9 @@ func resourceNotificationHubAuthorizationRuleDelete(d *pluginsdk.ResourceData, m
 		return err
 	}
 
-	locks.ByName(id.NotificationHubName, notificationHubResourceName)
-	defer locks.UnlockByName(id.NotificationHubName, notificationHubResourceName)
+	hub := NotificationHubResource{}
+	locks.ByName(id.NotificationHubName, hub.ResourceType())
+	defer locks.UnlockByName(id.NotificationHubName, hub.ResourceType())
 
 	locks.ByName(id.NamespaceName, notificationHubNamespaceResourceName)
 	defer locks.UnlockByName(id.NamespaceName, notificationHubNamespaceResourceName)
