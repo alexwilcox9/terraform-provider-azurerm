@@ -29,10 +29,17 @@ type NotificationHubModel struct {
 	NamespaceName     string                                  `tfschema:"namespace_name"`
 	ResourceGroupName string                                  `tfschema:"resource_group_name"`
 	Location          string                                  `tfschema:"location"`
+	AdmCredential     []NotificationHubAdmCredentialModel     `tfschema:"adm_credential"`
 	ApnsCredential    []NotificationHubApnsCredentialModel    `tfschema:"apns_credential"`
 	BrowserCredential []NotificationHubBrowserCredentialModel `tfschema:"browser_credential"`
 	GcmCredential     []NotificationHubGcmCredentialModel     `tfschema:"gcm_credential"`
 	Tags              map[string]string                       `tfschema:"tags"`
+}
+
+type NotificationHubAdmCredentialModel struct {
+	AuthTokenUrl string `tfschema:"auth_token_url"`
+	ClientId     string `tfschema:"client_id"`
+	ClientSecret string `tfschema:"client_secret"`
 }
 
 type NotificationHubApnsCredentialModel struct {
@@ -97,6 +104,33 @@ func (r NotificationHubResource) Arguments() map[string]*pluginsdk.Schema {
 		"resource_group_name": commonschema.ResourceGroupName(),
 
 		"location": commonschema.Location(),
+
+		"adm_credential": {
+			Type:     pluginsdk.TypeList,
+			Optional: true,
+			ForceNew: true,
+			MaxItems: 1,
+			Elem: &pluginsdk.Resource{
+				Schema: map[string]*pluginsdk.Schema{
+					"auth_token_url": {
+						Type:         pluginsdk.TypeString,
+						Required:     true,
+						ValidateFunc: validation.StringIsNotEmpty,
+					},
+					"client_id": {
+						Type:         pluginsdk.TypeString,
+						Required:     true,
+						ValidateFunc: validation.StringIsNotEmpty,
+					},
+					"client_secret": {
+						Type:         pluginsdk.TypeString,
+						Required:     true,
+						ValidateFunc: validation.StringIsNotEmpty,
+						Sensitive:    true,
+					},
+				},
+			},
+		},
 
 		"apns_credential": {
 			Type:     pluginsdk.TypeList,
@@ -195,6 +229,12 @@ func (r NotificationHubResource) CustomizeDiff() sdk.ResourceFunc {
 			// Bug: https://github.com/Azure/azure-sdk-for-go/issues/2246
 
 			diff := metadata.ResourceDiff
+			oADM, nADM := diff.GetChange("adm_credential.#")
+			oADMi := oADM.(int)
+			nADMi := nADM.(int)
+			if nADMi < oADMi {
+				diff.ForceNew("adm_credential")
+			}
 
 			oAPNS, nAPNS := diff.GetChange("apns_credential.#")
 			oAPNSi := oAPNS.(int)
@@ -251,6 +291,7 @@ func resourceNotificationHubCreateUpdate(ctx context.Context, metadata sdk.Resou
 	parameters := hubs.NotificationHubResource{
 		Location: location.Normalize(model.Location),
 		Properties: &hubs.NotificationHubProperties{
+			AdmCredential:     expandNotificationHubsADMCredentials(model.AdmCredential),
 			ApnsCredential:    expandNotificationHubsAPNSCredentials(model.ApnsCredential),
 			BrowserCredential: expandNotificationHubsBrowserCredentials(model.BrowserCredential),
 			GcmCredential:     expandNotificationHubsGCMCredentials(model.GcmCredential),
@@ -352,6 +393,7 @@ func (r NotificationHubResource) Read() sdk.ResourceFunc {
 
 			if credentialsModel := credentials.Model; credentialsModel != nil {
 				if props := credentialsModel.Properties; props != nil {
+					state.AdmCredential = flattenNotificationHubsADMCredentials(props.AdmCredential)
 					state.ApnsCredential = flattenNotificationHubsAPNSCredentials(props.ApnsCredential)
 					state.BrowserCredential = flattenNotificationHubsBrowserCredentials(props.BrowserCredential)
 					state.GcmCredential = flattenNotificationHubsGCMCredentials(props.GcmCredential)
@@ -389,6 +431,26 @@ func (r NotificationHubResource) Delete() sdk.ResourceFunc {
 			return nil
 		},
 	}
+}
+
+func expandNotificationHubsADMCredentials(inputs []NotificationHubAdmCredentialModel) *hubs.AdmCredential {
+	if len(inputs) == 0 {
+		return nil
+	}
+
+	input := inputs[0]
+	authTokenUrl := input.AuthTokenUrl
+	clientId := input.ClientId
+	clientSecret := input.ClientSecret
+
+	credentials := hubs.AdmCredential{
+		Properties: hubs.AdmCredentialProperties{
+			AuthTokenURL: authTokenUrl,
+			ClientId:     clientId,
+			ClientSecret: clientSecret,
+		},
+	}
+	return &credentials
 }
 
 func expandNotificationHubsAPNSCredentials(inputs []NotificationHubApnsCredentialModel) *hubs.ApnsCredential {
@@ -435,6 +497,20 @@ func expandNotificationHubsBrowserCredentials(inputs []NotificationHubBrowserCre
 		},
 	}
 	return &credentials
+}
+
+func flattenNotificationHubsADMCredentials(input *hubs.AdmCredential) []NotificationHubAdmCredentialModel {
+	if input == nil {
+		return make([]NotificationHubAdmCredentialModel, 0)
+	}
+
+	output := NotificationHubAdmCredentialModel{}
+
+	output.AuthTokenUrl = input.Properties.AuthTokenURL
+	output.ClientId = input.Properties.ClientId
+	output.ClientSecret = input.Properties.ClientSecret
+
+	return []NotificationHubAdmCredentialModel{output}
 }
 
 func flattenNotificationHubsAPNSCredentials(input *hubs.ApnsCredential) []NotificationHubApnsCredentialModel {

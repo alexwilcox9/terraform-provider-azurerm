@@ -48,6 +48,8 @@ The following arguments are supported:
 
 * `location` - (Required) The Azure Region in which this Notification Hub Namespace exists. Changing this forces a new resource to be created.
 
+* `adm_credential` - (Optional) A `adm_credential` block as defined below. Changing this forces a new resource to be created.
+
 * `apns_credential` - (Optional) A `apns_credential` block as defined below.
 
 ~> **Note:** Removing the `apns_credential` block will currently force a recreation of this resource [due to this bug in the Azure SDK for Go](https://github.com/Azure/azure-sdk-for-go/issues/2246) - we'll remove this limitation when the SDK bug is fixed.
@@ -59,6 +61,16 @@ The following arguments are supported:
 ~> **Note:** Removing the `gcm_credential` block will currently force a recreation of this resource [due to this bug in the Azure SDK for Go](https://github.com/Azure/azure-sdk-for-go/issues/2246) - we'll remove this limitation when the SDK bug is fixed.
 
 * `tags` - (Optional) A mapping of tags to assign to the resource.
+
+---
+
+A `adm_credential` block supports the following:
+
+* `auth_token_url` - (Required) The OAUTH token URL. Usually `https://api.amazon.com/auth/O2/token`
+
+* `client_id` - (Required) The OAUTH client ID to authenticate to Amazon Device Messagingy.
+
+* `client_secret` - (Required) The OAUTH client Secret to authenticate to Amazon Device Messaging.
 
 ---
 
